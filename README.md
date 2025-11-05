@@ -4,6 +4,8 @@
 
 A full-stack AI-powered PDF Q&A application that enables users to upload documents and interact with them through an intelligent chat interface. Built with Next.js, Gemini AI, and Pinecone Vector Database.
 
+## LIVE LINK : https://notebooklm.manjuhiremath.in/ or https://notebooklm-alpha.vercel.app/
+
 ## Features
 
 ### Core Functionality
