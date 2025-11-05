@@ -1,16 +1,16 @@
 import { extractText } from "unpdf";
 import fetch from "node-fetch";
 import { saveToPinecone } from "@/utils/pineconeClient";
-import fs from "fs";
-import path from "path";
+import FormData from "form-data";
 
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 export async function POST(req) {
   try {
     console.log("1. Starting upload...");
     const formData = await req.formData();
-    let file = formData.get("file") || formData.get("pdf");
+    const file = formData.get("file");
     
     if (!file) {
       return new Response(
@@ -23,14 +23,15 @@ export async function POST(req) {
     const fileBuffer = Buffer.from(arrayBuffer);
 
     // Extract text from PDF
+    console.log("2. Extracting text...");
     const { text, totalPages } = await extractText(
       new Uint8Array(fileBuffer),
       { mergePages: true }
     );
-    console.log("2. PDF extracted:", text.length, "chars");
+    console.log("3. PDF extracted:", text.length, "chars");
 
     const chunks = text.match(/(.|[\r\n]){1,1000}/g) || [];
-    console.log("3. Chunks created:", chunks.length);
+    console.log("4. Chunks created:", chunks.length);
 
     const embedApiKey = process.env.GEMINI_API_KEY;
     const embedModel = "gemini-embedding-001";
@@ -42,18 +43,16 @@ export async function POST(req) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${embedModel}:embedContent?key=${embedApiKey}`;
         
-        const payload = {
-          model: `models/${embedModel}`,
-          content: {
-            parts: [{ text: chunkText }]
-          },
-          outputDimensionality: 1024
-        };
-        
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            model: `models/${embedModel}`,
+            content: {
+              parts: [{ text: chunkText }]
+            },
+            outputDimensionality: 1024
+          })
         });
         
         if (!response.ok) continue;
@@ -70,7 +69,7 @@ export async function POST(req) {
       }
     }
 
-    console.log("4. Total embeddings:", vectors.length);
+    console.log("5. Total embeddings:", vectors.length);
     
     if (!vectors.length) {
       return new Response(
@@ -79,24 +78,39 @@ export async function POST(req) {
       );
     }
 
-    console.log("5. Saving to Pinecone...");
+    console.log("6. Saving to Pinecone...");
     await saveToPinecone(vectors);
 
-    console.log("6. Saving PDF file...");
-    const uploadsDir = path.join(process.cwd(), "public/uploads");
+    // ← UPLOAD TO CLOUDINARY WITH FOLDER
+    console.log("7. Uploading to Cloudinary with folder...");
     
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    const cloudinaryForm = new FormData();
+    cloudinaryForm.append('file', file.stream());
+    cloudinaryForm.append('upload_preset', 'notebooklm');
+    cloudinaryForm.append('folder', 'notebooklm/pdfs'); // ← CREATE FOLDER AUTOMATICALLY
+    cloudinaryForm.append('resource_type', 'auto');
+    cloudinaryForm.append('public_id', `${Date.now()}_${file.name.replace(/[^a-z0-9.-]/gi, '_').toLowerCase()}`);
+
+    const cloudinaryResponse = await fetch(
+      `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/upload`,
+      {
+        method: 'POST',
+        body: cloudinaryForm,
+        headers: cloudinaryForm.getHeaders(),
+      }
+    );
+
+    if (!cloudinaryResponse.ok) {
+      const error = await cloudinaryResponse.text();
+      console.error("Cloudinary upload error:", error);
+      throw new Error('Cloudinary upload failed');
     }
 
-    const sanitized = file.name.replace(/[^a-z0-9.-]/gi, '_').toLowerCase();
-    const fileName = `${Date.now()}_${sanitized}`;
-    const filePath = path.join(uploadsDir, fileName);
-    
-    fs.writeFileSync(filePath, fileBuffer);
-    console.log("7. PDF saved:", fileName);
+    const cloudinaryData = await cloudinaryResponse.json();
+    const pdfUrl = cloudinaryData.secure_url;
 
-    const pdfUrl = `/uploads/${fileName}`;
+    console.log("8. PDF uploaded to Cloudinary:", pdfUrl);
+    console.log("9. Folder path:", cloudinaryData.folder || 'notebooklm/pdfs');
 
     return new Response(
       JSON.stringify({ 
@@ -106,17 +120,11 @@ export async function POST(req) {
         totalPages,
         embeddingDimension: 1024,
         pdfUrl: pdfUrl,
-        fileName: file.name
+        fileName: file.name,
+        cloudinaryFolder: cloudinaryData.folder,
+        publicId: cloudinaryData.public_id
       }),
-      { 
-        status: 200, 
-        headers: { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type'
-        } 
-      }
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (error) {
     console.error("Fatal error:", error.message);
