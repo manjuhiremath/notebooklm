@@ -81,13 +81,19 @@ export async function POST(req) {
     console.log("6. Saving to Pinecone...");
     await saveToPinecone(vectors);
 
-    // ← UPLOAD TO CLOUDINARY WITH FOLDER
+    // ← UPLOAD TO CLOUDINARY WITH FOLDER (FIXED: Use Buffer instead of file.stream())
     console.log("7. Uploading to Cloudinary with folder...");
     
     const cloudinaryForm = new FormData();
-    cloudinaryForm.append('file', file.stream());
+    
+    // ← KEY FIX: Use Buffer instead of file.stream()
+    cloudinaryForm.append('file', fileBuffer, {
+      filename: file.name,
+      contentType: 'application/pdf',
+    });
+    
     cloudinaryForm.append('upload_preset', 'notebooklm');
-    cloudinaryForm.append('folder', 'notebooklm/pdfs'); // ← CREATE FOLDER AUTOMATICALLY
+    cloudinaryForm.append('folder', 'notebooklm/pdfs');
     cloudinaryForm.append('resource_type', 'auto');
     cloudinaryForm.append('public_id', `${Date.now()}_${file.name.replace(/[^a-z0-9.-]/gi, '_').toLowerCase()}`);
 
@@ -96,6 +102,7 @@ export async function POST(req) {
       {
         method: 'POST',
         body: cloudinaryForm,
+        // ← KEY FIX: Use getHeaders() to properly set boundary
         headers: cloudinaryForm.getHeaders(),
       }
     );
@@ -128,6 +135,7 @@ export async function POST(req) {
     );
   } catch (error) {
     console.error("Fatal error:", error.message);
+    console.error("Stack:", error.stack);
     return new Response(
       JSON.stringify({ error: error.message }), 
       { status: 500 }
