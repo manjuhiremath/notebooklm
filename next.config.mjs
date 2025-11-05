@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack: (config) => {
-    config.cache = false;
-    return config;
+    experimental: {
+    optimizeCss: false, // ← Disable lightningcss
+
   },
+
 };
 
 export default nextConfig;
