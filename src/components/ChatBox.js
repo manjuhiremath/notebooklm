@@ -29,6 +29,114 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
     scrollToBottom();
   }, [conversations]);
 
+  // Format text with markdown-like rendering
+  const formatText = (text) => {
+    if (!text) return text;
+
+    // Split by lines first
+    const lines = text.split('\n');
+    const formatted = [];
+    let inList = false;
+    let listItems = [];
+
+    lines.forEach((line, lineIndex) => {
+      const trimmed = line.trim();
+
+      // Handle bullet points (*, -, •)
+      if (trimmed.match(/^[\*\-\•]\s+/)) {
+        const content = trimmed.replace(/^[\*\-\•]\s+/, '');
+        listItems.push(content);
+        inList = true;
+      } 
+      // Handle numbered lists (1., 2., etc)
+      else if (trimmed.match(/^\d+\.\s+/)) {
+        const content = trimmed.replace(/^\d+\.\s+/, '');
+        listItems.push(content);
+        inList = true;
+      }
+      // Regular line
+      else {
+        // Flush list if we have one
+        if (inList && listItems.length > 0) {
+          formatted.push(
+            <ul key={`list-${lineIndex}`} className="list-disc list-inside space-y-1 my-2 ml-2">
+              {listItems.map((item, i) => (
+                <li key={i} className="text-xs leading-relaxed">{formatInline(item)}</li>
+              ))}
+            </ul>
+          );
+          listItems = [];
+          inList = false;
+        }
+
+        // Add regular line
+        if (trimmed) {
+          formatted.push(
+            <p key={`line-${lineIndex}`} className="text-xs leading-relaxed my-1">
+              {formatInline(trimmed)}
+            </p>
+          );
+        }
+      }
+    });
+
+    // Flush remaining list items
+    if (listItems.length > 0) {
+      formatted.push(
+        <ul key="list-final" className="list-disc list-inside space-y-1 my-2 ml-2">
+          {listItems.map((item, i) => (
+            <li key={i} className="text-xs leading-relaxed">{formatInline(item)}</li>
+          ))}
+        </ul>
+      );
+    }
+
+    return <div className="space-y-1">{formatted}</div>;
+  };
+
+  // Format inline text (bold, code, etc)
+  const formatInline = (text) => {
+    if (!text) return text;
+
+    const parts = [];
+    let currentText = text;
+    let key = 0;
+
+    // Handle **bold** text
+    const boldRegex = /\*\*([^*]+)\*\*/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = boldRegex.exec(currentText)) !== null) {
+      // Add text before match
+      if (match.index > lastIndex) {
+        parts.push(
+          <span key={`text-${key++}`}>
+            {currentText.substring(lastIndex, match.index)}
+          </span>
+        );
+      }
+      // Add bold text
+      parts.push(
+        <strong key={`bold-${key++}`} className="font-semibold text-gray-900">
+          {match[1]}
+        </strong>
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Add remaining text
+    if (lastIndex < currentText.length) {
+      parts.push(
+        <span key={`text-${key++}`}>
+          {currentText.substring(lastIndex)}
+        </span>
+      );
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+
   const submitChat = async (e) => {
     e.preventDefault();
     if (!question.trim()) return;
@@ -134,43 +242,49 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
                 className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-xs px-3 py-2 rounded-lg transition-all ${
+                  className={`max-w-md px-4 py-3 rounded-lg transition-all ${
                     msg.type === "user"
                       ? "bg-blue-600 text-white rounded-br-none shadow-md"
                       : "bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm"
                   }`}
                 >
-                  <p className="text-xs leading-relaxed whitespace-pre-wrap">
-                    {msg.content}
-                  </p>
+                  {msg.type === "user" ? (
+                    <p className="text-sm leading-relaxed">{msg.content}</p>
+                  ) : (
+                    // ← FORMATTED ASSISTANT RESPONSE
+                    <div className="prose prose-sm max-w-none">
+                      {formatText(msg.content)}
+                    </div>
+                  )}
+
                   {msg.type === "assistant" && (
                     <>
                       {msg.citations && msg.citations.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-gray-200 flex flex-wrap gap-1">
+                        <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-1.5">
                           {msg.citations.map((citation, i) => (
                             <button
                               key={i}
                               onClick={() => onCitationClick(citation.page)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded transition-colors font-medium"
                               title={`Go to page ${citation.page}`}
                             >
                               <BookOpen className="w-3 h-3" />
-                              P{citation.page}
+                              Page {citation.page}
                             </button>
                           ))}
                         </div>
                       )}
 
-                      <div className="mt-2 pt-2 border-t border-gray-200 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1 text-gray-600">
-                          <BarChart3 className="w-3 h-3" />
-                          <span>
-                            {msg.sources}s • {(msg.confidence * 100).toFixed(0)}%
+                      <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <BarChart3 className="w-3.5 h-3.5" />
+                          <span className="font-medium">
+                            {msg.sources} sources • {(msg.confidence * 100).toFixed(0)}% confidence
                           </span>
                         </div>
                         <button
                           onClick={() => copyToClipboard(msg.content, idx)}
-                          className={`ml-2 p-1 rounded transition-all ${
+                          className={`p-1.5 rounded transition-all ${
                             copiedIndex === idx
                               ? "bg-green-100 text-green-600"
                               : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
@@ -178,9 +292,9 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
                           title="Copy to clipboard"
                         >
                           {copiedIndex === idx ? (
-                            <CheckCircle2 className="w-3 h-3" />
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                           ) : (
-                            <Copy className="w-3 h-3" />
+                            <Copy className="w-3.5 h-3.5" />
                           )}
                         </button>
                       </div>
@@ -193,15 +307,15 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 px-3 py-2 rounded-lg rounded-bl-none shadow-sm">
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+              <div className="bg-white border border-gray-200 px-4 py-3 rounded-lg rounded-bl-none shadow-sm">
+                <div className="flex gap-1.5">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                   <div
-                    className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
                     style={{ animationDelay: "0.1s" }}
                   ></div>
                   <div
-                    className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
                     style={{ animationDelay: "0.2s" }}
                   ></div>
                 </div>
@@ -211,8 +325,8 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
 
           {error && (
             <div className="flex justify-start">
-              <div className="bg-red-50 border border-red-200 px-3 py-2 rounded-lg rounded-bl-none text-red-800 text-xs flex items-start gap-2">
-                <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <div className="bg-red-50 border border-red-200 px-4 py-3 rounded-lg rounded-bl-none text-red-800 text-sm flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
             </div>
@@ -224,33 +338,33 @@ export default function ChatBox({ fileName, onReset, onCitationClick }) {
 
       {/* Input Area */}
       <div className="bg-white border-t border-gray-200 shadow-lg sticky bottom-0">
-        <div className="p-3">
-          <form onSubmit={submitChat} className="space-y-1">
+        <div className="p-4">
+          <form onSubmit={submitChat} className="space-y-2">
             <div className="flex gap-2">
               <input
                 type="text"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask about document..."
+                placeholder="Ask about your document..."
                 disabled={loading}
-                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                className="flex-1 px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed transition-all"
               />
               <button
                 type="submit"
                 disabled={loading || !question.trim()}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded flex items-center gap-1 transition-all font-medium text-sm"
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-lg flex items-center gap-2 transition-all font-medium text-sm shadow-sm hover:shadow-md"
               >
                 {loading ? (
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 ) : (
-                  <Send className="w-3 h-3" />
+                  <Send className="w-4 h-4" />
                 )}
                 Ask
               </button>
             </div>
-            <div className="flex items-center gap-1 text-xs text-gray-600">
-              <Lightbulb className="w-3 h-3 text-yellow-500" />
-              <span>Tip: Ask specific questions</span>
+            <div className="flex items-center gap-1.5 text-xs text-gray-600">
+              <Lightbulb className="w-3.5 h-3.5 text-yellow-500" />
+              <span>Tip: Be specific with your questions for better answers</span>
             </div>
           </form>
         </div>
